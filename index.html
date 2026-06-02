@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="CommonAxon is a simple research search app for brain health equity, article discovery, clinical trials, resources, and reflective STEM advocacy."
+    />
+    <title>CommonAxon</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="#home" aria-label="CommonAxon home">
+          <span class="brand-mark" aria-hidden="true">CA</span>
+          <span>
+            <strong>CommonAxon</strong>
+            <small>Research map</small>
+          </span>
+        </a>
+
+        <nav class="nav-links" aria-label="Primary">
+          <a href="#atlas" data-route="atlas"><span class="nav-full">Disparity Atlas</span><span class="nav-short">Atlas</span></a>
+          <a href="#research" data-route="research"><span class="nav-full">Research Hub</span><span class="nav-short">Papers</span></a>
+          <a href="#translator" data-route="translator"><span class="nav-full">AI Translator</span><span class="nav-short">Translate</span></a>
+          <a href="#trials" data-route="trials"><span class="nav-full">Trial Finder</span><span class="nav-short">Trials</span></a>
+          <a href="#portfolio" data-route="portfolio"><span class="nav-full">Portfolio</span><span class="nav-short">Me</span></a>
+        </nav>
+
+        <div class="account-bar">
+          <span id="accountLabel">Guest mode</span>
+          <button class="quiet-button" id="authButton" type="button">Sign in</button>
+        </div>
+      </header>
+
+      <main id="app" tabindex="-1"></main>
+    </div>
+
+    <dialog class="auth-dialog" id="authDialog">
+      <form method="dialog" class="auth-card" id="authForm">
+        <div class="dialog-head">
+          <div>
+            <p class="eyebrow">Prototype account</p>
+            <h2>Save your searches and research notes</h2>
+          </div>
+          <button class="icon-button" value="cancel" aria-label="Close" type="submit">x</button>
+        </div>
+        <label>
+          Name
+          <input id="authName" name="name" autocomplete="name" placeholder="Kenny Rodriguez" />
+        </label>
+        <label>
+          Email
+          <input id="authEmail" name="email" autocomplete="email" type="email" placeholder="you@example.com" required />
+        </label>
+        <p class="form-note">
+          This prototype stores account data in this browser only. Connect Supabase for production authentication.
+        </p>
+        <div class="dialog-actions">
+          <button class="secondary-button" value="cancel" type="submit">Cancel</button>
+          <button class="primary-button" id="saveAuth" value="default" type="submit">Continue</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="app.js" type="module"></script>
+  </body>
+</html>
