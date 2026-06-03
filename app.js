@@ -5,6 +5,13 @@ const state = {
   savedSearches: load("nba_saved_searches", []),
   journalEntries: load("nba_journal_entries", []),
   resources: load("nba_resources", seedResources()),
+  accessibility: load("nba_accessibility", {
+    textSize: "default",
+    contrast: "default",
+    spacing: "default",
+    plainLanguage: false,
+    tableView: true,
+  }),
   lastPubMed: [],
   lastTrials: [],
 };
@@ -203,13 +210,16 @@ window.addEventListener("hashchange", route);
 authButton.addEventListener("click", openAuth);
 authForm.addEventListener("submit", saveAuth);
 
+applyAccessibilitySettings();
 route();
 renderAccount();
 
 function route() {
   state.route = location.hash.replace("#", "") || "home";
   document.querySelectorAll(".nav-links a").forEach((link) => {
-    link.classList.toggle("active", link.dataset.route === state.route);
+    const active = link.dataset.route === state.route;
+    link.classList.toggle("active", active);
+    link.toggleAttribute("aria-current", active);
   });
 
   const views = {
@@ -222,6 +232,7 @@ function route() {
   };
 
   (views[state.route] || renderHome)();
+  bindAccessibilityPanel();
   app.focus({ preventScroll: true });
 }
 
@@ -233,15 +244,19 @@ function renderHome() {
         <p class="lede">
           A plain-language research map for brain health equity. Search papers, trials, data, and community resources without losing the human story.
         </p>
-        <form class="search-box" id="globalSearch">
-          <input class="search-input" id="globalQuery" placeholder="Search Alzheimer care gaps, Parkinson trials, caregiver resources..." />
+        <form class="search-box" id="globalSearch" novalidate>
+          <label class="sr-only" for="globalQuery">Search brain health equity topics</label>
+          <input class="search-input" id="globalQuery" aria-describedby="globalQueryError" placeholder="Search Alzheimer care gaps, Parkinson trials, caregiver resources..." />
           <button class="primary-button" type="submit">Search</button>
+          <p class="form-error" id="globalQueryError" hidden>Enter a topic, disease, trial, or resource to search.</p>
         </form>
         <div class="quick-search-actions" aria-label="Article search shortcuts">
           <button class="secondary-button" id="homeSciBotSearch" type="button">Search Sci-Bot articles</button>
           <button class="quiet-button" id="homePubMedSearch" type="button">Search PubMed</button>
         </div>
       </div>
+      ${renderAccessibilityPanel()}
+      ${renderGlossaryPanel()}
       <div class="home-module-list" aria-label="CommonAxon modules">
           ${moduleCards
             .map(
@@ -262,8 +277,13 @@ function renderHome() {
 
   document.querySelector("#globalSearch").addEventListener("submit", (event) => {
     event.preventDefault();
-    const query = document.querySelector("#globalQuery").value.trim();
-    if (!query) return;
+    const input = document.querySelector("#globalQuery");
+    const query = input.value.trim();
+    if (!query) {
+      showFieldError(input, "globalQueryError");
+      return;
+    }
+    clearFieldError(input, "globalQueryError");
     sessionStorage.setItem("nba_pending_query", query);
     location.hash = "research";
   });
@@ -327,20 +347,31 @@ function renderAtlas() {
         <article class="metric-card"><p>Largest access gap</p><strong id="gapMetric">31%</strong></article>
         <article class="metric-card"><p>Equity priority</p><strong id="priorityMetric">Rural low-income</strong></article>
       </div>
+      ${renderGlossaryPanel()}
       <div class="two-col">
         <section class="content-panel">
           <h2>Demographic comparison</h2>
-          <div class="chart-wrap" id="barChart"></div>
+          <p class="fine-print">Bars include visible values and are repeated below as a keyboard and screen-reader friendly table.</p>
+          <div class="chart-wrap" id="barChart" aria-hidden="true"></div>
+          <div class="table-alternative" id="barChartTableWrap"></div>
         </section>
         <section class="content-panel">
           <h2>Geographic signal</h2>
           <p class="fine-print" id="atlasContext">This prototype uses sample values until validated public-health exports are loaded.</p>
+          <div class="map-legend" aria-label="Priority score legend">
+            <span><strong>High</strong> 77–89</span>
+            <span><strong>Moderate</strong> 63–76</span>
+            <span><strong>Watch</strong> 51–62</span>
+            <span><strong>Baseline</strong> 42–50</span>
+          </div>
           <div class="map-grid" id="mapGrid"></div>
+          <div class="table-alternative" id="mapTableWrap"></div>
         </section>
       </div>
       <section class="content-panel">
         <h2>Trend line</h2>
-        <svg class="trend-chart" id="trendChart" viewBox="0 0 800 260" role="img" aria-label="Five year trend chart"></svg>
+        <svg class="trend-chart" id="trendChart" viewBox="0 0 800 260" role="img" aria-labelledby="trendTitle trendDesc"></svg>
+        <div class="table-alternative" id="trendTableWrap"></div>
       </section>
     </section>
   `;
@@ -378,7 +409,7 @@ function updateAtlas() {
     .map(
       (row) => `
       <div class="bar-row">
-        <span class="bar-label">${row.group}</span>
+        <span class="bar-label">${escapeHtml(row.group)}</span>
         <span class="bar-track"><span class="bar-fill" style="width:${Math.round((row.activeValue / max) * 100)}%"></span></span>
         <span class="bar-value">${row.activeValue.toFixed(2)}x</span>
       </div>
@@ -386,12 +417,29 @@ function updateAtlas() {
     )
     .join("");
 
-  document.querySelector("#mapGrid").innerHTML = ["WA", "CA", "TX", "IL", "MI", "NY", "PA", "MD", "DC", "NC", "GA", "FL", "LA", "PR", "VI", "GU"]
-    .map((code, index) => {
-      const value = 42 + ((index * 11 + disease.length + measure.length + lenses.length * 3) % 48);
-      return `<span class="map-cell" title="${code} priority score ${value}" style="background:${heatColor(value)}">${code}</span>`;
-    })
+  document.querySelector("#barChartTableWrap").innerHTML = renderDataTable(
+    "Demographic comparison values",
+    ["Group", "Index value", "Category"],
+    rows.map((row) => [row.group, `${row.activeValue.toFixed(2)}x`, scoreCategory(Math.round(row.activeValue * 60))]),
+  );
+
+  const mapRows = ["WA", "CA", "TX", "IL", "MI", "NY", "PA", "MD", "DC", "NC", "GA", "FL", "LA", "PR", "VI", "GU"].map((code, index) => {
+    const value = 42 + ((index * 11 + disease.length + measure.length + lenses.length * 3) % 48);
+    return { code, value, category: scoreCategory(value) };
+  });
+
+  document.querySelector("#mapGrid").innerHTML = mapRows
+    .map(
+      ({ code, value, category }) =>
+        `<span class="map-cell" role="img" aria-label="${code} priority score ${value}, ${category}" title="${code} priority score ${value}, ${category}" style="background:${heatColor(value)}">${code}<span class="sr-only"> priority score ${value}, ${category}</span></span>`,
+    )
     .join("");
+
+  document.querySelector("#mapTableWrap").innerHTML = renderDataTable(
+    "Geographic priority scores",
+    ["Location", "Priority score", "Priority category"],
+    mapRows.map(({ code, value, category }) => [code, value, category]),
+  );
 
   renderTrend(rows);
 }
@@ -406,6 +454,8 @@ function renderTrend(rows) {
   const y = (value) => 220 - (value - 0.75) * 210;
   const path = points.map((point, index) => `${index ? "L" : "M"} ${x(index)} ${y(point.value)}`).join(" ");
   svg.innerHTML = `
+    <title id="trendTitle">Six-year trend line</title>
+    <desc id="trendDesc">Average index values from ${points[0].year} to ${points.at(-1).year}, repeated in the table below.</desc>
     <path d="M54 220 H744 M54 40 V220" fill="none" stroke="#b9c8c6" stroke-width="1" />
     <path d="${path}" fill="none" stroke="#1d6f6b" stroke-width="4" stroke-linecap="round" />
     ${points
@@ -418,6 +468,14 @@ function renderTrend(rows) {
       )
       .join("")}
   `;
+  const wrap = document.querySelector("#trendTableWrap");
+  if (wrap) {
+    wrap.innerHTML = renderDataTable(
+      "Six-year average trend values",
+      ["Year", "Average index value"],
+      points.map((point) => [point.year, `${point.value.toFixed(2)}x`]),
+    );
+  }
 }
 
 function renderCheckboxGroup(name, options, defaults = []) {
@@ -483,9 +541,10 @@ function renderResearch() {
         "Search for brain health papers with PubMed, then use Sci-Bot when you want an article-focused research assistant.",
         "researchTitle",
       )}
-      <form class="toolbar dual-actions" id="pubmedForm">
+      <form class="toolbar dual-actions" id="pubmedForm" novalidate>
         <label>Search words
-          <input id="pubmedQuery" value="${escapeHtml(pending || "Alzheimer disease health disparities")}" />
+          <input id="pubmedQuery" aria-describedby="pubmedQueryError" value="${escapeHtml(pending || "Alzheimer disease health disparities")}" />
+          <span class="form-error" id="pubmedQueryError" hidden>Enter PubMed search words.</span>
         </label>
         <label>Publication window
           <select id="pubmedWindow">
@@ -522,11 +581,11 @@ function renderResearch() {
             </div>
             <button class="secondary-button" id="saveResearchSearch" type="button">Save search</button>
           </div>
-          <div class="results-list" id="pubmedResults"></div>
+          <div class="results-list" id="pubmedResults" aria-live="polite" aria-busy="false"></div>
         </section>
         <aside class="content-panel">
           <h2>Saved searches</h2>
-          <div class="results-list" id="savedSearches"></div>
+          <div class="results-list" id="savedSearches" aria-live="polite"></div>
         </aside>
       </div>
     </section>
@@ -562,9 +621,14 @@ async function runPubMedSearch() {
   const years = document.querySelector("#pubmedWindow").value;
   const count = document.querySelector("#pubmedCount").value;
   const term = [query, focus].filter(Boolean).join(" ");
-  if (!term) return;
+  if (!term) {
+    showFieldError(document.querySelector("#pubmedQuery"), "pubmedQueryError");
+    return;
+  }
+  clearFieldError(document.querySelector("#pubmedQuery"), "pubmedQueryError");
 
-  container.innerHTML = `<p class="loading">Searching PubMed...</p>`;
+  setBusy(container, true);
+  container.innerHTML = `<p class="loading" role="status">Searching PubMed...</p>`;
   try {
     const currentYear = new Date().getFullYear();
     const dates = years ? `&mindate=${currentYear - Number(years)}&maxdate=${currentYear}&datetype=pdat` : "";
@@ -574,7 +638,8 @@ async function runPubMedSearch() {
     const searchData = await searchResponse.json();
     const ids = searchData.esearchresult?.idlist || [];
     if (!ids.length) {
-      container.innerHTML = `<div class="empty-state">No PubMed records matched this search.</div>`;
+      setBusy(container, false);
+      container.innerHTML = `<div class="empty-state" role="status">No PubMed records matched this search.</div>`;
       return;
     }
     const summaryUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&retmode=json&id=${ids.join(",")}`;
@@ -582,10 +647,12 @@ async function runPubMedSearch() {
     if (!summaryResponse.ok) throw new Error("PubMed summary failed");
     const summaryData = await summaryResponse.json();
     state.lastPubMed = ids.map((id) => summaryData.result[id]).filter(Boolean);
+    setBusy(container, false);
     renderPubMedResults(state.lastPubMed);
   } catch (error) {
     state.lastPubMed = fallbackPapers(term);
-    container.innerHTML = `<p class="notice error">Live PubMed fetch was unavailable in this browser session, so prototype examples are shown.</p>`;
+    setBusy(container, false);
+    container.innerHTML = `<p class="notice error" role="status">Live PubMed fetch was unavailable in this browser session, so prototype examples are shown.</p>`;
     container.insertAdjacentHTML("beforeend", pubMedMarkup(state.lastPubMed));
   }
 }
@@ -633,10 +700,12 @@ function renderTranslator() {
         "Paste an abstract and get versions for patients, community advocates, scientists, and policy readers.",
         "translatorTitle",
       )}
+      ${renderGlossaryPanel()}
       <div class="two-col">
         <form class="content-panel stack-form" id="translatorForm">
           <label>Abstract or research summary
-            <textarea id="abstractInput" placeholder="Paste an abstract about brain health, care gaps, biomarkers, caregiving, or a clinical trial.">${escapeHtml(seedText)}</textarea>
+            <textarea id="abstractInput" aria-describedby="abstractInputError" placeholder="Paste an abstract about brain health, care gaps, biomarkers, caregiving, or a clinical trial.">${escapeHtml(seedText)}</textarea>
+            <span class="form-error" id="abstractInputError" hidden>Paste an abstract or research summary first.</span>
           </label>
           <label>Primary audience
             <select id="audienceSelect">
@@ -660,7 +729,7 @@ function renderTranslator() {
           </table>
         </aside>
       </div>
-      <section class="translation-grid" id="translationOutput"></section>
+      <section class="translation-grid" id="translationOutput" aria-live="polite"></section>
     </section>
   `;
 
@@ -674,9 +743,11 @@ function translateAbstract() {
   const text = document.querySelector("#abstractInput").value.trim();
   const output = document.querySelector("#translationOutput");
   if (!text) {
-    output.innerHTML = `<p class="notice error">Paste an abstract first.</p>`;
+    showFieldError(document.querySelector("#abstractInput"), "abstractInputError");
+    output.innerHTML = `<p class="notice error" role="status">Paste an abstract first.</p>`;
     return;
   }
+  clearFieldError(document.querySelector("#abstractInput"), "abstractInputError");
 
   const keywords = extractKeywords(text);
   const plain = summarize(text, 32);
@@ -712,12 +783,14 @@ function renderTrials() {
         "Find active studies and quickly check whether participation looks realistic for families and care teams.",
         "trialsTitle",
       )}
-      <form class="toolbar" id="trialsForm">
+      <form class="toolbar" id="trialsForm" novalidate>
         <label>Condition
-          <input id="trialCondition" value="Alzheimer disease" />
+          <input id="trialCondition" aria-describedby="trialConditionError" value="Alzheimer disease" />
+          <span class="form-error" id="trialConditionError" hidden>Enter a condition before searching trials.</span>
         </label>
         <label>Location
-          <input id="trialLocation" placeholder="Maryland, Washington DC, United States" />
+          <input id="trialLocation" placeholder="Maryland, Washington DC, United States" aria-describedby="trialLocationHint" />
+          <span class="fine-print" id="trialLocationHint">Optional. Try a state, city, or country.</span>
         </label>
         <label>Status
           <select id="trialStatus">
@@ -746,7 +819,7 @@ function renderTrials() {
             </div>
             <button class="secondary-button" id="saveTrialSearch" type="button">Save search</button>
           </div>
-          <div class="results-list" id="trialResults"></div>
+          <div class="results-list" id="trialResults" aria-live="polite" aria-busy="false"></div>
         </section>
         <aside class="content-panel">
           <h2>Equity review checklist</h2>
@@ -787,9 +860,14 @@ async function runTrialSearch() {
   const location = document.querySelector("#trialLocation").value.trim();
   const status = document.querySelector("#trialStatus").value;
   const lenses = getCheckedValues("trialLens");
-  if (!condition) return;
+  if (!condition) {
+    showFieldError(document.querySelector("#trialCondition"), "trialConditionError");
+    return;
+  }
+  clearFieldError(document.querySelector("#trialCondition"), "trialConditionError");
 
-  container.innerHTML = `<p class="loading">Searching ClinicalTrials.gov...</p>`;
+  setBusy(container, true);
+  container.innerHTML = `<p class="loading" role="status">Searching ClinicalTrials.gov...</p>`;
   try {
     const params = new URLSearchParams({
       "query.cond": condition,
@@ -804,10 +882,12 @@ async function runTrialSearch() {
     state.lastTrials = data.studies || [];
     document.querySelector("#trialLensContext").textContent =
       `Live ClinicalTrials.gov results. Review lens: ${selectedLabel(lenses)}. These lenses are not used as hard API filters because trials rarely tag identity access well.`;
+    setBusy(container, false);
     renderTrialResults(state.lastTrials);
   } catch (error) {
     state.lastTrials = fallbackTrials(condition);
-    container.innerHTML = `<p class="notice error">Live ClinicalTrials.gov fetch was unavailable in this browser session, so prototype examples are shown.</p>`;
+    setBusy(container, false);
+    container.innerHTML = `<p class="notice error" role="status">Live ClinicalTrials.gov fetch was unavailable in this browser session, so prototype examples are shown.</p>`;
     container.insertAdjacentHTML("beforeend", trialMarkup(state.lastTrials));
   }
 }
@@ -815,7 +895,8 @@ async function runTrialSearch() {
 function renderTrialResults(studies) {
   const container = document.querySelector("#trialResults");
   if (!studies.length) {
-    container.innerHTML = `<div class="empty-state">No matching studies found.</div>`;
+    setBusy(container, false);
+    container.innerHTML = `<div class="empty-state" role="status">No matching studies found.</div>`;
     return;
   }
   container.innerHTML = trialMarkup(studies);
@@ -842,6 +923,7 @@ function trialMarkup(studies) {
             <span>${firstLocation}</span>
           </div>
           <p>${summarize(summary, 36)}</p>
+          ${renderAccessSnapshot(study, locations)}
           <div class="actions">
             <a class="secondary-button" href="https://clinicaltrials.gov/study/${id}" target="_blank" rel="noreferrer">Open study</a>
             <button class="quiet-button" type="button" data-resource="${escapeAttr(
@@ -881,7 +963,7 @@ function renderPortfolio() {
         </section>
         <section class="content-panel">
           <h2>Research note</h2>
-          <form class="stack-form" id="journalForm">
+          <form class="stack-form" id="journalForm" novalidate>
             <div class="form-row">
               <label>Date
                 <input id="journalDate" type="date" value="${new Date().toISOString().slice(0, 10)}" />
@@ -912,11 +994,12 @@ function renderPortfolio() {
               </select>
             </label>
             <label>Reflection
-              <textarea id="journalText" placeholder="Today I noticed... This connects to the research because... One thing I want to carry forward is..."></textarea>
+              <textarea id="journalText" aria-describedby="journalTextError" placeholder="Today I noticed... This connects to the research because... One thing I want to carry forward is..."></textarea>
+              <span class="form-error" id="journalTextError" hidden>Add a reflection before saving.</span>
             </label>
             <button class="primary-button" type="submit">Save research note</button>
           </form>
-          <div class="results-list" id="journalEntries"></div>
+          <div class="results-list" id="journalEntries" aria-live="polite"></div>
         </section>
       </div>
       <section class="content-panel">
@@ -927,11 +1010,12 @@ function renderPortfolio() {
           </div>
         </div>
         <form class="github-form" id="githubForm">
-          <input id="githubProfile" placeholder="https://github.com/your-username" value="${escapeAttr(state.githubProfile)}" />
+          <label class="sr-only" for="githubProfile">GitHub profile URL</label>
+          <input id="githubProfile" aria-describedby="githubStatus" placeholder="https://github.com/your-username" value="${escapeAttr(state.githubProfile)}" />
           <button class="primary-button" type="submit">Save GitHub link</button>
           <a class="secondary-button ${state.githubProfile ? "" : "disabled-link"}" id="openGithubProfile" href="${escapeAttr(state.githubProfile || "#")}" target="_blank" rel="noreferrer">Open GitHub</a>
         </form>
-        <p class="fine-print" id="githubStatus">${state.githubProfile ? "GitHub profile link saved in this browser." : "Add your GitHub URL when you are ready to connect the project publicly."}</p>
+        <p class="fine-print" id="githubStatus" aria-live="polite">${state.githubProfile ? "GitHub profile link saved in this browser." : "Add your GitHub URL when you are ready to connect the project publicly."}</p>
       </section>
       <section class="content-panel">
         <div class="dialog-head">
@@ -941,7 +1025,7 @@ function renderPortfolio() {
           </div>
           <input id="resourceFilter" placeholder="Filter resources" aria-label="Filter resources" />
         </div>
-        <div class="resource-grid" id="resourceGrid"></div>
+        <div class="resource-grid" id="resourceGrid" aria-live="polite"></div>
       </section>
       <section class="content-panel">
         <div class="dialog-head">
@@ -959,7 +1043,7 @@ function renderPortfolio() {
             <input id="importBackup" type="file" accept="application/json,.json" />
           </label>
         </div>
-        <p class="fine-print" id="exportStatus">Exports include saved searches, research notes, resources, GitHub profile link, and prototype account metadata stored in this browser.</p>
+        <p class="fine-print" id="exportStatus" aria-live="polite">Exports include saved searches, research notes, resources, GitHub profile link, and prototype account metadata stored in this browser.</p>
       </section>
     </section>
   `;
@@ -982,7 +1066,11 @@ function saveJournalEntry(event) {
   const prompt = document.querySelector("#journalPrompt").value;
   const mood = document.querySelector("#journalMood").value;
   const entryDate = document.querySelector("#journalDate").value;
-  if (!text) return;
+  if (!text) {
+    showFieldError(document.querySelector("#journalText"), "journalTextError");
+    return;
+  }
+  clearFieldError(document.querySelector("#journalText"), "journalTextError");
   state.journalEntries.unshift({
     id: crypto.randomUUID(),
     lens: lens || "General reflection",
@@ -1026,9 +1114,11 @@ function saveGithubProfile(event) {
   const link = document.querySelector("#openGithubProfile");
   const value = input.value.trim();
   if (value && !/^https:\/\/github\.com\/[A-Za-z0-9-]+\/?$/.test(value)) {
+    input.setAttribute("aria-invalid", "true");
     status.textContent = "Please enter a profile URL like https://github.com/your-username.";
     return;
   }
+  input.removeAttribute("aria-invalid");
   state.githubProfile = value;
   save("nba_github_profile", state.githubProfile);
   link.href = value || "#";
@@ -1127,7 +1217,152 @@ function pageHead(title, text, id) {
       <h1 id="${id}">${title}</h1>
       <p>${text}</p>
     </header>
+    ${renderAccessibilityPanel()}
   `;
+}
+
+
+function renderAccessibilityPanel() {
+  return `
+    <section class="accessibility-panel" aria-labelledby="accessibilityTitle">
+      <div>
+        <p class="eyebrow">Access tools</p>
+        <h2 id="accessibilityTitle">Accessibility settings</h2>
+        <p class="fine-print">These settings are saved in this browser and help make charts, forms, and research text easier to use.</p>
+      </div>
+      <div class="accessibility-controls">
+        <label>Text size
+          <select id="accessTextSize">
+            <option value="default" ${state.accessibility.textSize === "default" ? "selected" : ""}>Default</option>
+            <option value="large" ${state.accessibility.textSize === "large" ? "selected" : ""}>Large</option>
+          </select>
+        </label>
+        <label>Contrast
+          <select id="accessContrast">
+            <option value="default" ${state.accessibility.contrast === "default" ? "selected" : ""}>Default</option>
+            <option value="high" ${state.accessibility.contrast === "high" ? "selected" : ""}>High contrast</option>
+          </select>
+        </label>
+        <label>Reading spacing
+          <select id="accessSpacing">
+            <option value="default" ${state.accessibility.spacing === "default" ? "selected" : ""}>Default</option>
+            <option value="relaxed" ${state.accessibility.spacing === "relaxed" ? "selected" : ""}>Relaxed</option>
+          </select>
+        </label>
+        <label class="choice-chip access-toggle">
+          <input id="accessPlainLanguage" class="choice-input" type="checkbox" ${state.accessibility.plainLanguage ? "checked" : ""} />
+          <span>Plain-language mode</span>
+        </label>
+        <label class="choice-chip access-toggle">
+          <input id="accessTableView" class="choice-input" type="checkbox" ${state.accessibility.tableView ? "checked" : ""} />
+          <span>Show chart tables</span>
+        </label>
+      </div>
+    </section>
+  `;
+}
+
+function bindAccessibilityPanel() {
+  const textSize = document.querySelector("#accessTextSize");
+  if (!textSize) return;
+  textSize.addEventListener("change", (event) => updateAccessibility("textSize", event.target.value));
+  document.querySelector("#accessContrast")?.addEventListener("change", (event) => updateAccessibility("contrast", event.target.value));
+  document.querySelector("#accessSpacing")?.addEventListener("change", (event) => updateAccessibility("spacing", event.target.value));
+  document.querySelector("#accessPlainLanguage")?.addEventListener("change", (event) => updateAccessibility("plainLanguage", event.target.checked));
+  document.querySelector("#accessTableView")?.addEventListener("change", (event) => updateAccessibility("tableView", event.target.checked));
+}
+
+function updateAccessibility(key, value) {
+  state.accessibility = { ...state.accessibility, [key]: value };
+  save("nba_accessibility", state.accessibility);
+  applyAccessibilitySettings();
+}
+
+function applyAccessibilitySettings() {
+  const root = document.documentElement;
+  root.dataset.textSize = state.accessibility.textSize || "default";
+  root.dataset.contrast = state.accessibility.contrast || "default";
+  root.dataset.spacing = state.accessibility.spacing || "default";
+  root.dataset.plainLanguage = state.accessibility.plainLanguage ? "true" : "false";
+  root.dataset.tableView = state.accessibility.tableView ? "true" : "false";
+}
+
+function renderGlossaryPanel() {
+  return `
+    <details class="glossary-panel">
+      <summary>Plain-language glossary</summary>
+      <dl>
+        <div><dt>Incidence</dt><dd>How many new cases appear in a group during a time period.</dd></div>
+        <div><dt>Prevalence</dt><dd>How many people are living with a condition at a point in time.</dd></div>
+        <div><dt>Diagnosis access</dt><dd>How easily someone can get evaluated and receive a clear diagnosis.</dd></div>
+        <div><dt>Eligibility criteria</dt><dd>The rules that decide who can join a clinical trial.</dd></div>
+        <div><dt>Suppressed data</dt><dd>Data hidden or grouped to protect privacy, often because a sample is small.</dd></div>
+      </dl>
+    </details>
+  `;
+}
+
+function renderDataTable(caption, headers, rows) {
+  return `
+    <table class="data-table chart-data-table">
+      <caption>${escapeHtml(caption)}</caption>
+      <thead><tr>${headers.map((header) => `<th scope="col">${escapeHtml(header)}</th>`).join("")}</tr></thead>
+      <tbody>
+        ${rows.map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+function scoreCategory(value) {
+  if (value > 76) return "High priority";
+  if (value > 62) return "Moderate priority";
+  if (value > 50) return "Watch priority";
+  return "Baseline priority";
+}
+
+function renderAccessSnapshot(study, locations = []) {
+  const protocol = study.protocolSection || {};
+  const summary = [protocol.descriptionModule?.briefSummary, study.summary, protocol.eligibilityModule?.eligibilityCriteria]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  const hasRemote = /remote|virtual|telehealth|online|home/.test(summary);
+  const hasCompensation = /compensation|reimburse|stipend|payment|paid|travel support/.test(summary);
+  const languageAccess = /spanish|interpreter|translation|language/.test(summary);
+  const caregiver = /caregiver|study partner|family member/.test(summary);
+  const burden = locations.length > 5 ? "Lower travel concentration risk" : locations.length ? "Check travel distance" : "Location not listed";
+  return `
+    <div class="access-snapshot" aria-label="Trial access snapshot">
+      <h4>Access snapshot</h4>
+      <ul>
+        <li><strong>Visit burden:</strong> ${burden}</li>
+        <li><strong>Remote option:</strong> ${hasRemote ? "Mentioned" : "Not listed"}</li>
+        <li><strong>Compensation:</strong> ${hasCompensation ? "Mentioned" : "Not listed"}</li>
+        <li><strong>Language access:</strong> ${languageAccess ? "Mentioned" : "Not listed"}</li>
+        <li><strong>Caregiver requirement:</strong> ${caregiver ? "Mentioned" : "Not listed"}</li>
+      </ul>
+    </div>
+  `;
+}
+
+function showFieldError(input, errorId) {
+  const error = document.querySelector(`#${errorId}`);
+  if (!input || !error) return;
+  error.hidden = false;
+  input.setAttribute("aria-invalid", "true");
+  input.focus();
+}
+
+function clearFieldError(input, errorId) {
+  const error = document.querySelector(`#${errorId}`);
+  if (!input || !error) return;
+  error.hidden = true;
+  input.removeAttribute("aria-invalid");
+}
+
+function setBusy(element, busy) {
+  if (element) element.setAttribute("aria-busy", busy ? "true" : "false");
 }
 
 function sciBotUrl(query) {

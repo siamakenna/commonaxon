@@ -40,3 +40,34 @@ This prototype is not attached to Base44. For production, connect:
 The prototype includes broad race, ethnicity, gender, sex, sexuality, disability, language, income, geography, religion, caregiver, immigration, and access lenses. These are interface filters and reflection lenses, not proof that every public dataset supports every category. Production should clearly document which categories are present, missing, aggregated, or suppressed in each dataset.
 
 See `DATA_ARCHITECTURE.md` for schema and service design.
+
+## Accessibility roadmap and implemented upgrades
+
+CommonAxon now treats accessibility as part of the product experience rather than a final visual pass.
+
+Implemented in this prototype:
+
+- Skip link for keyboard users.
+- Visible `:focus-visible` states for links, buttons, fields, summaries, and routed content.
+- Active navigation uses `aria-current="page"`.
+- Accessibility settings panel with large text, high contrast, relaxed reading spacing, plain-language mode, and chart table visibility controls.
+- Reduced-motion support through `prefers-reduced-motion`.
+- Live regions and busy states for PubMed, ClinicalTrials.gov, translation output, saved searches, resources, and export status.
+- Form validation messages connected with `aria-describedby` and `aria-invalid`.
+- Table alternatives for Atlas bar charts, map scores, and trend charts.
+- Heat-map cells include text labels and priority categories so color is not the only signal.
+- Plain-language glossary for common research, data, and clinical-trial terms.
+- Trial access snapshots for remote options, compensation, language access, caregiver requirements, and travel burden signals.
+
+Target standard: WCAG 2.2 AA for focus visibility, keyboard navigation, labels, contrast, dynamic updates, nonvisual chart alternatives, reduced motion, and accessible authentication patterns.
+
+## Accessibility testing
+
+Install development dependencies and run the automated accessibility smoke test:
+
+```bash
+npm install
+npm run test:a11y
+```
+
+The Playwright + axe test opens the main routes and checks for detectable accessibility violations. Manual review is still needed for keyboard-only navigation, screen-reader wording, chart interpretation, and plain-language quality.

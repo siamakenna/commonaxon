@@ -1,0 +1,14 @@
+{
+  "name": "commonaxon",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "test:a11y": "playwright test tests/accessibility.spec.js"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "latest",
+    "@playwright/test": "latest"
+  }
+}
